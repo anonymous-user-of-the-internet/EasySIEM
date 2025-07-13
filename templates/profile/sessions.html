@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Active Sessions</h2>
+    <p class="text-muted">Here are all your active login sessions across different devices.</p>
+
+    <div class="mb-3">
+        <a href="{{ url_for('auth.revoke_all_sessions') }}" class="btn btn-warning" 
+           onclick="return confirm('Are you sure you want to revoke all other sessions?')">
+            Revoke All Other Sessions
+        </a>
+    </div>
+
+    <div class="row">
+        {% for session in sessions %}
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        {% if session.session_id == session['session_id'] %}
+                        <span class="badge bg-primary">Current Session</span>
+                        {% endif %}
+                    </h5>
+                    
+                    <div class="card-text">
+                        <p><strong>Browser:</strong> {{ session.user_agent }}</p>
+                        <p><strong>IP Address:</strong> {{ session.ip_address }}</p>
+                        <p><strong>Created:</strong> {{ session.created_at }}</p>
+                        <p><strong>Last Active:</strong> {{ session.last_accessed }}</p>
+                        <p><strong>Expires:</strong> {{ session.expires_at }}</p>
+                    </div>
+
+                    {% if session.session_id != session['session_id'] %}
+                    <a href="{{ url_for('auth.revoke_session', session_id=session.session_id) }}" 
+                       class="btn btn-danger btn-sm"
+                       onclick="return confirm('Are you sure you want to revoke this session?')">
+                        Revoke Session
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

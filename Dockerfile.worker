@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY . .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -e .
+
+# Set environment variables
+ENV PYTHONPATH=/app
+
+# Start Celery worker
+CMD ["celery", "-A", "celery_worker", "worker", "--loglevel=info", "--concurrency=4"]

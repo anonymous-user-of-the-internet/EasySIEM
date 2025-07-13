@@ -38,8 +38,39 @@ celery.conf.update(
         'enrich_event': {'queue': 'enrichment'},
         'evaluate_alert_rules': {'queue': 'alerting'},
         'cleanup_old_events': {'queue': 'maintenance'},
+        'cleanup_expired_sessions': {'queue': 'maintenance'},
+        'log_active_sessions': {'queue': 'maintenance'}
     }
 )
+
+# Import session tasks
+from tasks.session_tasks import cleanup_expired_sessions, log_active_sessions
+
+# Add session management tasks to beat schedule
+celery.conf.beat_schedule = {
+    'evaluate-alert-rules': {
+        'task': 'evaluate_alert_rules',
+        'schedule': 60.0,  # Every minute
+    },
+    'system-health-check': {
+        'task': 'system_health_check',
+        'schedule': 300.0,  # Every 5 minutes
+    },
+    'cleanup-old-events': {
+        'task': 'cleanup_old_events',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
+    },
+    'cleanup-expired-sessions': {
+        'task': 'tasks.session_tasks.cleanup_expired_sessions',
+        'schedule': crontab(minute='*/15'),  # Run every 15 minutes
+        'options': {'queue': 'maintenance'}
+    },
+    'log-active-sessions': {
+        'task': 'tasks.session_tasks.log_active_sessions',
+        'schedule': crontab(minute='0', hour='*/1'),  # Run every hour
+        'options': {'queue': 'maintenance'}
+    }
+}
 
 class ContextTask(Task):
     """
@@ -318,24 +349,3 @@ def process_rabbitmq_queue(queue_name):
     except Exception as e:
         logger.error(f"Error processing queue {queue_name}: {e}")
         raise
-
-# Periodic tasks setup
-from celery.schedules import crontab
-
-celery.conf.beat_schedule = {
-    'evaluate-alert-rules': {
-        'task': 'evaluate_alert_rules',
-        'schedule': 60.0,  # Every minute
-    },
-    'system-health-check': {
-        'task': 'system_health_check',
-        'schedule': 300.0,  # Every 5 minutes
-    },
-    'cleanup-old-events': {
-        'task': 'cleanup_old_events',
-        'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
-    },
-}
-
-if __name__ == '__main__':
-    celery.start()

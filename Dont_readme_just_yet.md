@@ -3,8 +3,6 @@
 ## Overview
 This is a comprehensive SIEM (Security Information & Event Management) platform built with Python, Flask, and PostgreSQL. The system provides real-time log collection, parsing, enrichment, alerting, and dashboard visualization for security monitoring and incident response.
 
-## User Preferences
-Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 

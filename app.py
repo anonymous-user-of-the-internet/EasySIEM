@@ -1,10 +1,11 @@
 import os
 import logging
-from flask import Flask
+from flask import Flask, session, request, current_app, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from sqlalchemy.orm import DeclarativeBase
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -42,6 +43,28 @@ def create_app():
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access the SIEM dashboard.'
+    
+    # Initialize session management
+    from utils.session_manager import SessionManager
+    session_manager = SessionManager(app)
+    app.session_manager = session_manager
+
+    @app.before_request
+    def validate_session():
+        if not getattr(current_app, 'session_manager', None):
+            return
+            
+        if 'session_id' in session:
+            user_agent = request.headers.get('User-Agent')
+            ip_address = request.remote_addr
+            
+            if not current_app.session_manager.validate_session(
+                session['session_id'],
+                user_agent,
+                ip_address
+            ):
+                session.clear()
+                return redirect(url_for('auth.login'))
     
     @login_manager.user_loader
     def load_user(user_id):
