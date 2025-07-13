@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Generator - SIEM{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>
+                    <i class="fas fa-download me-2"></i>SIEM Agent Generator
+                </h2>
+                <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-cog me-2"></i>Agent Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="agent-config-form">
+                        <!-- Basic Configuration -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary">
+                                    <i class="fas fa-server me-1"></i>Connection Settings
+                                </h6>
+                                <hr>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">SIEM Server Endpoint *</label>
+                                <input type="url" class="form-control" id="siem_endpoint" 
+                                       value="http://{{ request.host }}/api/ingest" required>
+                                <div class="form-text">Full URL to your SIEM server</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">API Token *</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="api_token" 
+                                           value="siem-agent-token-change-me" required>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="generateToken()">
+                                        <i class="fas fa-random"></i>
+                                    </button>
+                                </div>
+                                <div class="form-text">Secure token for agent authentication</div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Identity -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary">
+                                    <i class="fas fa-id-card me-1"></i>Agent Identity
+                                </h6>
+                                <hr>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Agent ID *</label>
+                                <input type="text" class="form-control" id="agent_id" 
+                                       placeholder="web-server-01" required>
+                                <div class="form-text">Unique identifier for this agent</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Log Level</label>
+                                <select class="form-select" id="log_level">
+                                    <option value="INFO" selected>INFO</option>
+                                    <option value="DEBUG">DEBUG</option>
+                                    <option value="WARNING">WARNING</option>
+                                    <option value="ERROR">ERROR</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Log Sources -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary">
+                                    <i class="fas fa-file-alt me-1"></i>Log File Sources
+                                </h6>
+                                <hr>
+                            </div>
+                            <div class="col-12">
+                                <div id="log-sources">
+                                    <!-- Default log sources -->
+                                    <div class="log-source-item mb-3">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <input type="text" class="form-control" placeholder="Source name" value="auth">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <input type="text" class="form-control" placeholder="Log file path" value="/var/log/auth.log">
+                                            </div>
+                                            <div class="col-md-2">
+                                                <button type="button" class="btn btn-outline-danger" onclick="removeLogSource(this)">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="log-source-item mb-3">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <input type="text" class="form-control" placeholder="Source name" value="syslog">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <input type="text" class="form-control" placeholder="Log file path" value="/var/log/syslog">
+                                            </div>
+                                            <div class="col-md-2">
+                                                <button type="button" class="btn btn-outline-danger" onclick="removeLogSource(this)">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addLogSource()">
+                                    <i class="fas fa-plus me-1"></i>Add Log Source
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Syslog Listeners -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary">
+                                    <i class="fas fa-network-wired me-1"></i>Syslog Listeners
+                                </h6>
+                                <hr>
+                            </div>
+                            <div class="col-12">
+                                <div id="syslog-ports">
+                                    <div class="syslog-port-item mb-3">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <input type="number" class="form-control" placeholder="Port number" value="514" min="1" max="65535">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="form-text mt-2">Standard syslog UDP port</div>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <button type="button" class="btn btn-outline-danger" onclick="removeSyslogPort(this)">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addSyslogPort()">
+                                    <i class="fas fa-plus me-1"></i>Add Syslog Port
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Advanced Settings -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary">
+                                    <i class="fas fa-cogs me-1"></i>Advanced Settings
+                                </h6>
+                                <hr>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Batch Size</label>
+                                <input type="number" class="form-control" id="batch_size" value="10" min="1" max="1000">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Batch Timeout (seconds)</label>
+                                <input type="number" class="form-control" id="batch_timeout" value="5" min="1" max="60">
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check mt-4">
+                                    <input type="checkbox" class="form-check-input" id="systemd_enabled" checked>
+                                    <label class="form-check-label" for="systemd_enabled">
+                                        Enable Systemd Journal
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Security Settings -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary">
+                                    <i class="fas fa-shield-alt me-1"></i>Security Settings
+                                </h6>
+                                <hr>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="verify_ssl" checked>
+                                    <label class="form-check-label" for="verify_ssl">
+                                        Verify SSL Certificates
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">CA Certificate Path (optional)</label>
+                                <input type="text" class="form-control" id="ca_cert_path" placeholder="/path/to/ca.pem">
+                            </div>
+                        </div>
+
+                        <!-- Generate Button -->
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-download me-2"></i>Generate & Download Agent Package
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-info-circle me-1"></i>Installation Guide
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <h6><i class="fas fa-step-forward me-1"></i>Steps</h6>
+                        <ol class="small">
+                            <li>Configure the agent settings</li>
+                            <li>Click "Generate & Download"</li>
+                            <li>Transfer ZIP file to target server</li>
+                            <li>Extract and run: <code>sudo ./install.sh</code></li>
+                            <li>Agent starts automatically</li>
+                        </ol>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6><i class="fas fa-server me-1"></i>Requirements</h6>
+                        <ul class="small">
+                            <li>Linux system with systemd</li>
+                            <li>Python 3.6+ installed</li>
+                            <li>Network access to SIEM server</li>
+                            <li>Root privileges for installation</li>
+                        </ul>
+                    </div>
+
+                    <div class="mb-3">
+                        <h6><i class="fas fa-folder me-1"></i>Common Log Paths</h6>
+                        <div class="small">
+                            <strong>Ubuntu/Debian:</strong><br>
+                            <code>/var/log/auth.log</code><br>
+                            <code>/var/log/syslog</code><br>
+                            <code>/var/log/apache2/access.log</code><br>
+                            <code>/var/log/nginx/access.log</code><br><br>
+                            
+                            <strong>CentOS/RHEL:</strong><br>
+                            <code>/var/log/secure</code><br>
+                            <code>/var/log/messages</code><br>
+                            <code>/var/log/httpd/access_log</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('agent-config-form');
+    
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        generateAgent();
+    });
+});
+
+function generateToken() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let token = 'siem-token-';
+    for (let i = 0; i < 32; i++) {
+        token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    document.getElementById('api_token').value = token;
+}
+
+function addLogSource() {
+    const container = document.getElementById('log-sources');
+    const newItem = document.createElement('div');
+    newItem.className = 'log-source-item mb-3';
+    newItem.innerHTML = `
+        <div class="row">
+            <div class="col-md-4">
+                <input type="text" class="form-control" placeholder="Source name">
+            </div>
+            <div class="col-md-6">
+                <input type="text" class="form-control" placeholder="Log file path">
+            </div>
+            <div class="col-md-2">
+                <button type="button" class="btn btn-outline-danger" onclick="removeLogSource(this)">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    container.appendChild(newItem);
+}
+
+function removeLogSource(button) {
+    button.closest('.log-source-item').remove();
+}
+
+function addSyslogPort() {
+    const container = document.getElementById('syslog-ports');
+    const newItem = document.createElement('div');
+    newItem.className = 'syslog-port-item mb-3';
+    newItem.innerHTML = `
+        <div class="row">
+            <div class="col-md-4">
+                <input type="number" class="form-control" placeholder="Port number" min="1" max="65535">
+            </div>
+            <div class="col-md-6">
+                <div class="form-text mt-2">Custom syslog port</div>
+            </div>
+            <div class="col-md-2">
+                <button type="button" class="btn btn-outline-danger" onclick="removeSyslogPort(this)">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    container.appendChild(newItem);
+}
+
+function removeSyslogPort(button) {
+    button.closest('.syslog-port-item').remove();
+}
+
+function generateAgent() {
+    // Collect form data
+    const config = {
+        siem_endpoint: document.getElementById('siem_endpoint').value,
+        api_token: document.getElementById('api_token').value,
+        agent_id: document.getElementById('agent_id').value,
+        log_level: document.getElementById('log_level').value,
+        batch_size: parseInt(document.getElementById('batch_size').value),
+        batch_timeout: parseInt(document.getElementById('batch_timeout').value),
+        systemd_enabled: document.getElementById('systemd_enabled').checked,
+        verify_ssl: document.getElementById('verify_ssl').checked,
+        ca_cert_path: document.getElementById('ca_cert_path').value || null,
+        log_sources: [],
+        syslog_ports: []
+    };
+
+    // Collect log sources
+    document.querySelectorAll('.log-source-item').forEach(item => {
+        const inputs = item.querySelectorAll('input');
+        const name = inputs[0].value.trim();
+        const path = inputs[1].value.trim();
+        if (name && path) {
+            config.log_sources.push({ name, path });
+        }
+    });
+
+    // Collect syslog ports
+    document.querySelectorAll('.syslog-port-item').forEach(item => {
+        const portInput = item.querySelector('input[type="number"]');
+        const port = parseInt(portInput.value);
+        if (port && port > 0 && port <= 65535) {
+            config.syslog_ports.push({ port });
+        }
+    });
+
+    // Validate required fields
+    if (!config.siem_endpoint || !config.api_token || !config.agent_id) {
+        alert('Please fill in all required fields');
+        return;
+    }
+
+    // Show loading state
+    const submitBtn = document.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
+    submitBtn.disabled = true;
+
+    // Send request
+    fetch('/admin/generate-agent', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        // Create download
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `siem-agent-${config.agent_id}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        // Show success message
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'alert alert-success alert-dismissible fade show';
+        alertDiv.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i>
+            Agent package generated successfully! Check your downloads folder.
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error generating agent package: ' + error.message);
+    })
+    .finally(() => {
+        // Restore button state
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    });
+}
+</script>
+{% endblock %}

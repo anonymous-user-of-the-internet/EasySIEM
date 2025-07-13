@@ -52,10 +52,12 @@ def create_app():
     from routes.dashboard import dashboard_bp
     from routes.api import api_bp
     from routes.auth import auth_bp
+    from routes.admin import admin_bp
     
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
     app.register_blueprint(auth_bp, url_prefix='/auth')
+    app.register_blueprint(admin_bp)
     
     # Create database tables
     with app.app_context():
