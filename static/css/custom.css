@@ -1,0 +1,181 @@
+/* Custom SIEM Dashboard Styles */
+
+/* Override any specific Bootstrap styles if needed */
+.navbar-brand {
+    font-weight: 600;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+.card-header {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+/* Status indicators */
+.status-healthy {
+    color: #198754;
+}
+
+.status-warning {
+    color: #ffc107;
+}
+
+.status-critical {
+    color: #dc3545;
+}
+
+/* Event type badges */
+.badge {
+    font-size: 0.75em;
+}
+
+/* Chart containers */
+.chart-container {
+    position: relative;
+    height: 300px;
+}
+
+/* Loading states */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Table improvements */
+.table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Alert styling */
+.alert {
+    border: none;
+    border-radius: 0.375rem;
+}
+
+/* Progress bars */
+.progress {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+/* Code blocks */
+pre {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+pre code {
+    color: #f8f9fa;
+    font-size: 0.875rem;
+}
+
+/* Modal improvements */
+.modal-content {
+    background-color: var(--bs-dark);
+    border: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+.modal-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+.modal-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+/* Form improvements */
+.form-control:focus {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.form-select:focus {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* Animation for loading states */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+/* Dashboard specific styles */
+.dashboard-card .card-body {
+    padding: 1.5rem;
+}
+
+.stat-icon {
+    opacity: 0.7;
+}
+
+/* Event table enhancements */
+.events-table .badge {
+    font-size: 0.7rem;
+    padding: 0.25em 0.5em;
+}
+
+/* Alert styles */
+.alert-item {
+    transition: background-color 0.2s ease;
+}
+
+.alert-item:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Login page specific styles */
+.login-container .card {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.5);
+}
+
+.brand-logo {
+    text-shadow: 0 0 20px rgba(13, 110, 253, 0.5);
+}

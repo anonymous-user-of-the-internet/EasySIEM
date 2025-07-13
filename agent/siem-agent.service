@@ -1,0 +1,37 @@
+[Unit]
+Description=SIEM Log Collection Agent
+Documentation=https://github.com/your-org/siem-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=siem-agent
+Group=siem-agent
+ExecStart=/opt/siem-agent/siem-agent --config /etc/siem-agent/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siem-agent
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/siem-agent
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=32768
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,61 @@
+# SIEM Agent Configuration File
+
+# SIEM Platform Connection
+siem_endpoint: "http://localhost:5000/api/ingest"
+api_token: "siem-agent-token-change-me"
+
+# Optional batch endpoint for multiple events
+# batch_endpoint: "http://localhost:5000/api/ingest/batch"
+
+# Batch Settings
+batch_size: 10          # Number of events to batch before sending
+batch_timeout: 5        # Seconds to wait before sending partial batch
+
+# File Sources - Log files to tail
+file_sources:
+  - name: "auth"
+    path: "/var/log/auth.log"
+  - name: "syslog"
+    path: "/var/log/syslog"
+  - name: "apache-access"
+    path: "/var/log/apache2/access.log"
+  - name: "apache-error"
+    path: "/var/log/apache2/error.log"
+  - name: "nginx-access"
+    path: "/var/log/nginx/access.log"
+  - name: "nginx-error"
+    path: "/var/log/nginx/error.log"
+
+# Syslog Sources - UDP listeners
+syslog_sources:
+  - name: "syslog-udp"
+    port: 514
+  - name: "custom-syslog"
+    port: 5514
+
+# Systemd Journal Integration
+systemd_journal:
+  enabled: true
+  # Optional: specific units to monitor
+  units:
+    - "ssh.service"
+    - "apache2.service"
+    - "nginx.service"
+    - "cron.service"
+
+# Log Level (DEBUG, INFO, WARNING, ERROR)
+log_level: "INFO"
+
+# Agent Identification
+agent_id: null  # If null, uses hostname
+
+# Connection Settings
+connection:
+  timeout: 10           # Request timeout in seconds
+  retry_attempts: 3     # Number of retry attempts for failed sends
+  retry_delay: 5        # Delay between retries in seconds
+
+# Security Settings
+security:
+  verify_ssl: true      # Set to false for self-signed certificates
+  ca_cert_path: null    # Path to custom CA certificate
