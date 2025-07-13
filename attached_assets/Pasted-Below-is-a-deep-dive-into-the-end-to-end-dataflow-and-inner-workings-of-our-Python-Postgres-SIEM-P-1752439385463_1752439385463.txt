@@ -1,0 +1,269 @@
+Below is a deep dive into the end‑to‑end dataflow and inner workings of our Python + Postgres SIEM PoC. We’ll follow a single event from agent pickup through to dashboard display and alerting, and then zoom out to cover auxiliary systems (backups, monitoring, CI/CD).
+
+---
+
+## 1. Agent → Ingestion Broker
+
+1. **Log Collection (Agent)**
+
+   * Lightweight Python daemon runs on each host.
+   * Reads from one or more sources:
+
+     * **Files** (e.g. `/var/log/auth.log`) via tailing libraries.
+     * **Syslog** via UDP/TCP listener.
+     * **Windows Event Log** via `pywin32`.
+     * **API‑pulled logs** (cloud services).
+   * Wraps each raw message as:
+
+     ```json
+     {
+       "timestamp": "2025-07-06T12:34:56Z",
+       "host": "web01.example.com",
+       "source": "syslog",
+       "raw": "<raw payload string>"
+     }
+     ```
+   * Publishes to RabbitMQ exchange `logs.raw` with routing key equal to `source`.
+
+2. **Message Broker (RabbitMQ)**
+
+   * **Exchange Type**: `topic`
+   * **Queues**: one per `source` (e.g. `q.raw.syslog`, `q.raw.windows`) bound to `logs.raw.*`.
+   * **Durability**: exchanges & queues are durable; messages are persisted until ACKed.
+   * **Consumer ACK**: each parser worker ACKs only after successful parse/enrich.
+
+---
+
+## 2. Parser & Normalizer
+
+1. **Worker Pool**
+
+   * Dockerized FastAPI workers subscribe to all `q.raw.*` queues.
+   * Each worker fetches a message, deserializes JSON envelope.
+
+2. **Format Detection**
+
+   ```python
+   def detect_format(raw_str):
+       try:
+           return "json", json.loads(raw_str)
+       except ValueError:
+           if "," in raw_str:
+               return "csv", csv.DictReader(...)
+           else:
+               return "text", raw_str
+   ```
+
+3. **Parsing**
+
+   * **JSON**: pass through into a standard dict.
+   * **CSV**: map header→value.
+   * **Free‑text**: apply a library of Grok patterns (regex templates) configurable via YAML:
+
+     ```yaml
+     ssh_failed:
+       pattern: '%{IP:src_ip} - %{USERNAME:user} %{GREEDYDATA:msg}'
+     ```
+   * On parse success, produce:
+
+     ```json
+     {
+       "ts": "2025-07-06T12:34:56Z",
+       "host": "web01.example.com",
+       "event_type": "ssh_failed",
+       "fields": {
+         "src_ip": "10.0.0.5",
+         "user": "root",
+         "msg": "authentication failure"
+       }
+     }
+     ```
+
+4. **Normalization**
+
+   * Canonicalize field names (e.g. `user` → `username`).
+   * Coerce numeric and timestamp types.
+   * Validate required fields; route malformed into a quarantine table for manual review.
+
+5. **Hand‑off to Enricher**
+
+   * POST normalized event to FastAPI `/enrich` endpoint (internal network).
+
+---
+
+## 3. Enrichment Service
+
+1. **GeoIP Lookup**
+
+   * Extract any IP fields (`src_ip`, `dst_ip`) and call local MaxMind DB.
+   * Append `geoip: { "country": "...", "city": "...", lat/lon }`.
+
+2. **DNS Reverse Lookup**
+
+   * For each IP not in cache: do `socket.gethostbyaddr()`, cache 5 min.
+
+3. **Threat‑Intel Tagging**
+
+   * Maintain local CSV or Redis set of malicious IPs/domains.
+   * Tag any matching src/dst with `threat: ["malicious_ip", ...]`.
+
+4. **Combine into Enriched Payload**
+
+   ```json
+   {
+     "raw_id": 12345,
+     "ts": "2025-07-06T12:34:56Z",
+     "source": "syslog",
+     "host": "web01.example.com",
+     "event_type": "ssh_failed",
+     "message": "authentication failure",
+     "enrichment": {
+       "geoip": { … },
+       "dns": { … },
+       "threat": ["malicious_ip"]
+     },
+     "metadata": { "username": "root", "src_ip": "10.0.0.5" }
+   }
+   ```
+
+5. **Persist to Postgres**
+
+   ```sql
+   INSERT INTO events_enriched
+     (raw_id, ts, source, host, event_type, message, enrichment, metadata)
+   VALUES (...);
+   ```
+
+---
+
+## 4. Storage & Indexing
+
+1. **Partitioning**
+
+   * **Raw**: `events_raw_YYYYMMDD` daily; older partitions beyond 2 days are detached and compressed via `pg_partman`.
+   * **Enriched**: single table with B‑tree index on `(ts DESC)` and GIN index on `enrichment`.
+
+2. **Compression for Archive**
+
+   * Detached partitions are stored as `.tar.gz` on the filesystem, and a mapping table `archive_index` holds pointers.
+
+3. **Query Optimizations**
+
+   * Frequently run ad‑hoc queries hit the `events_enriched` table.
+   * Use `EXPLAIN ANALYZE` to tune indexes; add composite indexes for common filters (e.g. `(event_type, ts)`).
+
+---
+
+## 5. Alert Engine
+
+1. **Rule Store**
+
+   * Table `alert_rules` holds YAML blobs describing each rule (threshold or correlation).
+
+2. **Scheduler**
+
+   * APScheduler cron job in FastAPI app fires every minute.
+
+3. **Evaluation Loop**
+
+   ```python
+   for rule in get_active_rules():
+       sql = translate_to_sql(rule.filter, rule.count, rule.window)
+       count = db.execute(sql)
+       if count >= rule.count:
+           send_email(rule.recipients, rule.name, count)
+   ```
+
+4. **Email Notifications**
+
+   * SMTP server creds in config.
+   * Each email includes a summary and a link to the relevant Query API search.
+
+---
+
+## 6. Query API & Caching
+
+1. **Endpoints**
+
+   * `GET /events` with query params: `start`, `end`, `source`, `event_type`, `tags`, full‑text `q`.
+   * `GET /events/{id}` for detail drill‑down.
+
+2. **Redis Cache**
+
+   * Cache results of frequent time‑range + filter combos for 60 s.
+   * Key: SHA256 of query string.
+
+3. **Pagination & Sorting**
+
+   * Use `LIMIT/OFFSET` for PoC (cursor‑based later).
+   * Default sort: `ts DESC`.
+
+---
+
+## 7. Dashboard Frontend
+
+1. **Data Requests**
+
+   * React components call the Query API via Axios (JWT in `Authorization` header).
+   * E.g. load time‑series of `ssh_failed` count:
+
+     ```
+     GET /events/aggregations/count?
+       start=2025-07-06T00:00Z&
+       end=2025-07-06T23:59Z&
+       group_by=1h&
+       event_type=ssh_failed
+     ```
+
+2. **Charts (Recharts)**
+
+   * LineChart for time series.
+   * BarChart or PieChart for summary by event\_type or host.
+
+3. **Saved Dashboards**
+
+   * User can define a JSON layout of widget definitions; stored in `dashboards` table and fetched on page load.
+
+---
+
+## 8. Monitoring, CI/CD & Backups
+
+1. **Prometheus Metrics**
+
+   * Each FastAPI service uses `prometheus_client` to expose `/metrics`.
+   * Track: queue depths, API latencies, parse/enrich errors.
+
+2. **Grafana System Health**
+
+   * Dashboards show CPU, RAM, disk usage, Postgres replication lag (if any), and key application metrics (e.g. EPS ingested).
+
+3. **CI/CD Pipeline**
+
+   * **Lint** with `flake8` and `eslint`.
+   * **Unit Tests** for each Python module.
+   * **Integration** via Docker Compose: RabbitMQ + Postgres + services + test scripts.
+   * **Docker Build & Push** on merge to `main`.
+
+4. **Backups**
+
+   * Nightly incremental dumps with `pg_dump -F d --jobs 4`.
+   * WAL segments archived for PITR.
+   * A recovery playbook documents `pg_restore` steps.
+
+---
+
+### Putting It All Together
+
+```text
+Agent ──▶ RabbitMQ ──▶ Parser ──▶ Enricher ──▶ Postgres ──▶
+                  │           │                  │
+                  └──▶ Alert Engine ──▶ Email    └──▶ Archive (compressed)
+                  │
+                  └──▶ Query API ──▶ React Frontend
+                               │
+                               └──▶ Redis Cache
+```
+
+Every event funnels through a durable broker, is parsed and normalized once, enriched with external context, and then lives in “hot” Postgres for two days before moving to cheaper, compressed partitions. Alerts run continuously, and end users query via a responsive API-backed React dashboard. Behind the scenes, Prometheus/Grafana and nightly backups ensure health and recoverability, while a full CI/CD pipeline keeps code quality high.
+
+Let me know if you’d like sequence diagrams, sample configuration files, or skeleton code for any component!

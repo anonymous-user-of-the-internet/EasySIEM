@@ -1,0 +1,90 @@
+import threading
+import time
+import socket
+import json
+import yaml
+import requests
+from pathlib import Path
+
+# Load configuration
+CONFIG_PATH = Path(__file__).parent / "config.yaml"
+with open(CONFIG_PATH) as f:
+    config = yaml.safe_load(f)
+
+SIEM_ENDPOINT = config.get("siem_endpoint", "http://localhost:8000/ingest")
+HEADERS = {"Content-Type": "application/json", "Authorization": f"Bearer {config.get('api_token', '')}"}
+
+
+def tail_file(path, source_name):
+    """
+    Tail a file and send new lines to SIEM.
+    """
+    file = Path(path)
+    # Ensure file exists
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.touch(exist_ok=True)
+
+    with open(file, "r") as f:
+        # Move to the end of file
+        f.seek(0, 2)
+        while True:
+            line = f.readline()
+            if not line:
+                time.sleep(0.5)
+                continue
+            send_event(source_name, line.strip())
+
+
+def listen_syslog(port, source_name):
+    """
+    Listen for syslog messages on UDP and forward them.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("0.0.0.0", port))
+    while True:
+        data, addr = sock.recvfrom(65535)
+        message = data.decode(errors='ignore').strip()
+        send_event(source_name, message)
+
+
+def send_event(source, raw_payload):
+    """
+    Send a single event to the SIEM ingestion endpoint.
+    """
+    event = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "host": socket.gethostname(),
+        "source": source,
+        "raw": raw_payload
+    }
+    try:
+        resp = requests.post(SIEM_ENDPOINT, headers=HEADERS, data=json.dumps(event), timeout=5)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"Failed to send event from {source}: {e}")
+
+
+def main():
+    threads = []
+    # Start file tail threads
+    for src in config.get("file_sources", []):
+        t = threading.Thread(target=tail_file, args=(src['path'], src['name']), daemon=True)
+        threads.append(t)
+        t.start()
+
+    # Start syslog listener threads
+    for src in config.get("syslog_sources", []):
+        t = threading.Thread(target=listen_syslog, args=(src['port'], src['name']), daemon=True)
+        threads.append(t)
+        t.start()
+
+    print("SIEM Agent started. Press Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Stopping SIEM Agent...")
+
+
+if __name__ == "__main__":
+    main()

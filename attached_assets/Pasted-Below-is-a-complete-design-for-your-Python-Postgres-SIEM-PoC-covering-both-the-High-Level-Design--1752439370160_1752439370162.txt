@@ -1,0 +1,251 @@
+Below is a complete design for your Python + Postgres SIEM PoC, covering both the High‑Level Design (HLD) and the Low‑Level Design (LLD).
+
+---
+
+## High‑Level Design (HLD)
+
+```text
+   +-----------+      +------------+      +-------------+      +-------------+
+   |  Agents   | ──▶  | Ingest MS  | ──▶  | Parser/Norm | ──▶  | Enricher    |
+   | (Python)  |      | (RabbitMQ) |      | (FastAPI)   |      | (FastAPI)   |
+   +-----------+      +------------+      +-------------+      +-------------+
+                                                         │
+                                                         ▼
+   +--------------------------------------------------------------------+
+   |                             Storage                                |
+   | ┌───────────────┐  ┌─────────────────────┐  ┌──────────────────┐  |
+   | │ Postgres “hot”│  │ Partitioned RAW     │  │ Archive (2‑day →  │  |
+   | │  (current eps)│  │ tables + JSONB cols │  │  compressed part.)│  |
+   | └───────────────┘  └─────────────────────┘  └──────────────────┘  |
+   +--------------------------------------------------------------------+
+        │       │         │                │                  ▲
+        │       │         │                │                  │
+        │       │         ▼                │                  │
+        │       └──▶ Alert Engine ──▶ Email│                  │
+        │               (FastAPI)          │     +------------┘
+        │                                  │
+        ▼                                  │
+   +-------------+    +--------------+     │
+   | Query API   |◀──▶| Dashboards   |     │
+   | (FastAPI)   |    | (React +     |─────┘
+   +-------------+    | Recharts)    |
+                      +--------------+
+```
+
+### Components
+
+1. **Agents (Python)**
+
+   * Collect logs (syslog, Windows Event, files, APIs)
+   * Forward to RabbitMQ exchange
+
+2. **Ingestion Message‑Broker (RabbitMQ)**
+
+   * Durable queues per source/type
+   * Fan‑out to parser workers
+
+3. **Parser & Normalizer Service (FastAPI)**
+
+   * Pulls raw messages, applies JSON/CSV pass‑through or Grok‑like rules
+   * Outputs a canonical event schema
+
+4. **Enrichment Service (FastAPI)**
+
+   * Adds GeoIP, DNS reverse lookup, threat‑intel tags
+   * Writes enriched events to Postgres
+
+5. **Storage (Postgres)**
+
+   * **Raw Events**: `events_raw_YYYYMMDD` partitioned daily, JSONB payload
+   * **Enriched Events**: `events_enriched` with B‑tree on timestamp, GIN on JSONB
+   * **Archive**: older partitions compressed (e.g. `pg_partman` + `pg_compress`)
+
+6. **Alert Engine (FastAPI)**
+
+   * Periodic rule evaluation (threshold, correlation)
+   * Sends email alerts via SMTP
+
+7. **Query API (FastAPI)**
+
+   * Exposes endpoints for ad‑hoc queries, faceting, pagination
+   * Uses Redis cache for recent hot queries
+
+8. **Dashboard Frontend (React + Recharts)**
+
+   * Time‑series charts, tables, filters, saved dashboards
+
+9. **Monitoring & Health**
+
+   * Prometheus metrics from each service
+   * Grafana “System Health” panel
+
+10. **CI/CD & Testing**
+
+* GitHub Actions: lint, unit tests for parsers/enrichers, integration tests with a test Postgres container
+* Docker Compose for PoC deployment
+
+11. **Backup & Archive Jobs**
+
+* Daily incremental `pg_dump --format=directory --jobs`
+* WAL‑archive for point‑in‑time recovery
+
+12. **Security & Auth**
+
+* TLS for all HTTP and AMQP traffic
+* FastAPI OAuth2 (JWT) for admin/API access
+* Audit‑log table for config changes
+
+---
+
+## Low‑Level Design (LLD)
+
+### 1. Postgres Schema
+
+```sql
+-- Partition template for raw events
+CREATE TABLE events_raw (
+  id         BIGSERIAL PRIMARY KEY,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  source     TEXT NOT NULL,
+  payload    JSONB NOT NULL
+) PARTITION BY RANGE (received_at);
+
+-- Daily partition example
+CREATE TABLE events_raw_20250706 PARTITION OF events_raw
+  FOR VALUES FROM ('2025-07-06') TO ('2025-07-07');
+
+-- Enriched events table
+CREATE TABLE events_enriched (
+  id            BIGSERIAL PRIMARY KEY,
+  raw_id        BIGINT REFERENCES events_raw(id),
+  ts            TIMESTAMPTZ NOT NULL,
+  source        TEXT NOT NULL,
+  host          TEXT,
+  event_type    TEXT,
+  message       TEXT,
+  enrichment    JSONB,           -- GeoIP, threat_intel
+  metadata      JSONB            -- any extra fields
+);
+CREATE INDEX ON events_enriched (ts DESC);
+CREATE INDEX ON events_enriched USING GIN (enrichment);
+```
+
+### 2. API Contracts
+
+#### Ingestion Endpoint (Agents → Ingest Service)
+
+```
+POST /ingest
+Headers: Authorization: Bearer <token>
+Body: { "source":"firewall1", "payload":{…} }
+```
+
+* Validates schema, pushes to RabbitMQ.
+
+#### Parser Worker
+
+```python
+def parse_message(raw_msg):
+    if is_json(raw_msg.payload):
+        return raw_msg.payload  # pass-through
+    else:
+        return grok_parse(raw_msg.payload, patterns)
+```
+
+#### Enrichment Endpoint
+
+```
+POST /enrich
+Body: { "raw_id": 123, "event": {…} }
+```
+
+* Adds GeoIP (`geo = geoip.lookup(event.ip)`), DNS, threat tags via local feed lookups.
+
+#### Query API
+
+```
+GET /events?start=2025-07-01T00:00Z&end=2025-07-06T23:59Z
+Response: {
+  total: 1234,
+  hits: [ { id, ts, source, message,… } ]
+}
+```
+
+* Supports filters: `source`, `event_type`, `enrichment.tags`.
+
+#### Alert Rules Management
+
+```
+POST   /alerts       # Define a rule (threshold, correlation)
+GET    /alerts       # List rules
+DELETE /alerts/{id}  # Remove rule
+```
+
+### 3. Alert Engine
+
+* **Scheduler**: APScheduler cron job runs every minute
+* **Rule Example**:
+
+  ```yaml
+  name: "Brute Force SSH"
+  type: threshold
+  filter: 'event_type="ssh_login" AND payload.status="failed"'
+  count: 10
+  window: "5m"
+  action: send_email
+  recipients:
+    - soc@company.com
+  ```
+* **Evaluation**: translates filter into SQL:
+
+  ```sql
+  SELECT count(*) FROM events_enriched
+   WHERE ts > now() - interval '5 minutes'
+     AND event_type='ssh_login' AND metadata->>'status'='failed';
+  ```
+* **Email**: via `python-smtplib`.
+
+### 4. Dashboard Frontend
+
+* **React** (Vite) structure:
+
+  ```
+  src/
+    components/
+      TimeSeriesChart.jsx   ← uses Recharts LineChart
+      AlertsTable.jsx
+      DashboardList.jsx
+    pages/
+      /dashboard/[id].jsx
+      /alerts.jsx
+      /settings.jsx
+    api.js       ← axios instance with JWT header
+  ```
+* **Key Views**:
+
+  * **Overview**: Last 24 h events by type
+  * **Custom Dashboard**: User‑saved widget layouts
+  * **Alerts**: Active & history table
+
+### 5. CI/CD & Testing
+
+* **GitHub Actions** workflow:
+
+  1. **Lint**: `flake8` & `eslint`
+  2. **Unit Tests**: `pytest` with a `testing` Postgres container
+  3. **Integration**: spin up RabbitMQ + Postgres in Docker Compose and run end‑to‑end parsers & alert tests
+  4. **Build Docker Images** and push to registry
+
+### 6. Backup & Archival
+
+* **Daily Incremental**:
+
+  ```bash
+  pg_dump -F d -j 4 -f /backups/$(date +%F) /var/lib/postgresql/data
+  ```
+* **Partition Compression**:
+  Use `pg_partman` to detach partitions older than 2 days and `pg_compress` (or `pg_archivecleanup`) to compress `.sql` files.
+
+---
+
+With this HLD and LLD in place, you can spin up your PoC on a single server (e.g. via Docker Compose), then iterate on performance, scaling, and HA when you outgrow it. Let me know if you’d like code skeletons or sample configs for any specific piece!
